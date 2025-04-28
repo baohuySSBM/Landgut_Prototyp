@@ -1,0 +1,174 @@
+<!-- LandGut-App - Final 2.0 mit Route-Planer und Standort-Pin -->
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LandGut-App</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; background-color: #F5DEB3; }
+    .start, .anbieterseite { text-align: center; padding: 50px; background-color: #4CAF50; color: white; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .start img { width: 250px; margin-bottom: 20px; border-radius: 12px; }
+    .start button, .anbieterseite button { padding: 15px 30px; font-size: 18px; background-color: #8B5E3C; color: white; border: none; border-radius: 12px; cursor: pointer; margin: 10px; }
+    #map { height: 50vh; width: 100%; display: none; }
+    #details, #products, #einkaufsliste { padding: 20px; margin: 20px; background: white; border-radius: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); display: none; }
+    #einkaufsliste-btn, #route-btn { position: fixed; top: 10px; background-color: #4CAF50; color: white; border: none; padding: 15px; border-radius: 12px; font-size: 16px; cursor: pointer; z-index: 999; }
+    #einkaufsliste-btn { right: 10px; }
+    #route-btn { right: 180px; }
+    button { margin-top: 10px; border-radius: 10px; }
+  </style>
+</head>
+<body>
+  <div class="start" id="startScreen">
+    <img src="LandGut.png" alt="LandGut Logo">
+    <h1>Willkommen bei LandGut</h1>
+    <p>Was möchten Sie tun?</p>
+    <button onclick="showMap()">Regionale Anbieter entdecken</button>
+    <button onclick="showAnbieterWerden()">Regionaler Anbieter werden</button>
+  </div>
+
+  <div class="anbieterseite" id="anbieterScreen" style="display:none;">
+    <h1>Regionaler Anbieter werden</h1>
+    <p>Wir freuen uns sehr, dass Sie regionaler Anbieter werden wollen.<br>
+    Bitte melden Sie sich telefonisch oder schriftlich bei uns:<br><br>
+    <b>LandGut GmbH</b><br>
+    Musterstraße 12<br>
+    71032 Böblingen<br><br>
+    Tel.: 07031 123456<br>
+    E-Mail: kontakt@landgut-region.de</p>
+    <button onclick="goBackHome()">Zurück zur Startseite</button>
+  </div>
+
+  <button id="einkaufsliste-btn" onclick="toggleList()">Meine Einkaufsliste</button>
+  <button id="route-btn" onclick="planRoute()">Route planen</button>
+
+  <div id="map"></div>
+  <div id="details"></div>
+  <div id="products"></div>
+  <div id="einkaufsliste">
+    <h3>Meine Einkaufsliste</h3>
+    <ul id="liste"></ul>
+    <button onclick="clearList()">Liste leeren</button>
+  </div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+let map;
+let currentProvider = null;
+let providersData = [];
+
+function showMap() {
+  document.getElementById('startScreen').style.display = 'none';
+  document.getElementById('anbieterScreen').style.display = 'none';
+  document.getElementById('map').style.display = 'block';
+  document.getElementById('einkaufsliste-btn').style.display = 'block';
+  document.getElementById('route-btn').style.display = 'block';
+
+  map = L.map('map').setView([48.68, 9.01], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap-Mitwirkende'
+  }).addTo(map);
+
+  const userMarker = L.marker([48.68, 9.01], {title: 'Hier befinde ich mich'}).addTo(map);
+  userMarker.bindPopup('Hier befinde ich mich');
+
+  fetch('/api/providers')
+    .then(response => response.json())
+    .then(providers => {
+      providersData = providers;
+      providers.forEach(p => {
+        const marker = L.marker([p.lat, p.lng]).addTo(map);
+        marker.bindPopup(`<b>${p.name}</b><br><button onclick=\"showDetails('${p.id}')\">Details ansehen</button>`);
+      });
+    });
+}
+
+function showAnbieterWerden() {
+  document.getElementById('startScreen').style.display = 'none';
+  document.getElementById('anbieterScreen').style.display = 'flex';
+}
+
+function goBackHome() {
+  location.reload();
+}
+
+async function showDetails(id) {
+  const response = await fetch(`/api/provider?id=${id}`);
+  const provider = await response.json();
+  currentProvider = provider;
+
+  const detailsDiv = document.getElementById('details');
+  detailsDiv.style.display = 'block';
+  detailsDiv.innerHTML = `<h3>${provider.name}</h3>
+    <p>Öffnungszeiten: ${provider.hours}</p>
+    <p>Zahlung: ${provider.payment}</p>
+    <p><a href='${provider.homepage}' target='_blank'>Homepage besuchen</a></p>
+    <button onclick="showProducts('${provider.id}')">Produkte ansehen</button>`;
+}
+
+async function showProducts(id) {
+  const response = await fetch(`/api/products?id=${id}`);
+  const products = await response.json();
+
+  const productsDiv = document.getElementById('products');
+  productsDiv.style.display = 'block';
+  productsDiv.innerHTML = '<h3>Produkte</h3>';
+  products.forEach(p => {
+    productsDiv.innerHTML += `<p>${p.name}${p.price ? ' (' + p.price + ' €)' : ''} <button onclick=\"addToList('${p.name}', '${p.price}', '${currentProvider.name}')\">Hinzufügen</button></p>`;
+  });
+}
+
+function addToList(name, price, provider) {
+  const list = JSON.parse(localStorage.getItem('einkaufsliste') || '[]');
+  list.push({name, price, provider});
+  localStorage.setItem('einkaufsliste', JSON.stringify(list));
+  updateList();
+}
+
+function toggleList() {
+  const el = document.getElementById('einkaufsliste');
+  if (el.style.display === 'none' || el.style.display === '') {
+    updateList();
+    el.style.display = 'block';
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+function updateList() {
+  const items = JSON.parse(localStorage.getItem('einkaufsliste') || '[]');
+  const ul = document.getElementById('liste');
+  ul.innerHTML = '';
+  items.forEach(item => {
+    const li = document.createElement('li');
+    li.textContent = `${item.name}${item.price ? ' (' + item.price + ' €)' : ''} - von ${item.provider}`;
+    ul.appendChild(li);
+  });
+}
+
+function clearList() {
+  localStorage.removeItem('einkaufsliste');
+  updateList();
+}
+
+function planRoute() {
+  const items = JSON.parse(localStorage.getItem('einkaufsliste') || '[]');
+  const uniqueProviders = [...new Set(items.map(i => i.provider))];
+  const providerCoords = providersData.filter(p => uniqueProviders.includes(p.name));
+
+  if (providerCoords.length === 0) {
+    alert('Einkaufsliste ist leer oder keine Anbieter ausgewählt.');
+    return;
+  }
+
+  let url = 'https://www.google.com/maps/dir/48.68,9.01';
+  providerCoords.forEach(p => {
+    url += `/${p.lat},${p.lng}`;
+  });
+
+  window.open(url, '_blank');
+}
+</script>
+</body>
+</html>
